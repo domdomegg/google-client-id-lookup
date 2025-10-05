@@ -29,24 +29,28 @@ const Home = () => {
       );
 
       if (!response.ok) {
-        throw new Error('Failed to fetch app details');
+        throw new Error('Failed to fetch app details from Google');
       }
 
       const html = await response.text();
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
+
       const element = doc.querySelector('[data-client-auth-config-brand]');
+      const configStr = element?.getAttribute('data-client-auth-config-brand');
 
-      if (!element) {
-        throw new Error('Could not find app details');
-      }
-
-      const configStr = element.getAttribute('data-client-auth-config-brand');
       if (!configStr) {
-        throw new Error('Could not find app configuration');
+        throw new Error('Could not find app details in the response from Google');
       }
 
       const parts = configStr.replace('%.@.', '').split(',');
+
+      if (parts.length < 7) {
+        throw new Error(
+          `The data format from Google has changed. Expected 7 parts but got ${parts.length}. `
+          + 'This tool may need to be updated to handle the new format.',
+        );
+      }
 
       setAppDetails({
         type: 'loaded',
@@ -78,6 +82,19 @@ const Home = () => {
         This tool can find the app details behind a given Google Client ID (such as
         12345.apps.googleusercontent.com).
       </p>
+
+      <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <div className="font-semibold text-yellow-900 mb-2">⚠️ This tool currently does not work</div>
+        <p className="text-yellow-800 text-sm mb-2">
+          Google now requires a browser User-Agent header to return app details. CORS proxies strip this header, preventing the tool from working.
+        </p>
+        <p className="text-yellow-800 text-sm">
+          <strong>Workaround:</strong> Use curl with the proper headers:{' '}
+          <code className="bg-yellow-100 px-1 py-0.5 rounded text-xs">
+            curl -H &quot;User-Agent: Mozilla/5.0&quot; &quot;https://accounts.google.com/signin/oauth/error?client_id=YOUR_CLIENT_ID&amp;flowName=GeneralOAuthFlow&quot;
+          </code>
+        </p>
+      </div>
 
       {appDetails.type === 'ready' && (
         <div className="mb-6">
