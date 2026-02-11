@@ -6,7 +6,7 @@
   "scripts": {
     "start": "next dev --turbopack",
     "build": "next build",
-    "lint": "next lint"
+    "lint": "eslint src/"
   },
   "dependencies": {
     "eslint-config-domdomegg": "^1.2.3",
