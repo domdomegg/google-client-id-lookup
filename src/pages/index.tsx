@@ -4,18 +4,68 @@ import {useState} from 'react';
 type GoogleAppDetails = {
 	id: string;
 	name: string;
-	email: string;
+	email?: string;
 	logoSrc?: string;
-	website: string;
 	termsUrls: string[];
 	privacyUrls: string[];
+};
+
+const googleErrorPageUrl = (clientId: string) => `https://accounts.google.com/signin/oauth/error?client_id=${encodeURIComponent(clientId)}&flowName=GeneralOAuthFlow`;
+
+// Google's OAuth error page only includes app details when requested with a
+// full browser User-Agent, and blocks cross-origin reads, so we go via public
+// CORS proxies (which forward the browser's User-Agent). Tried in order.
+const corsProxies = [
+	(url: string) => `https://corsmirror.com/v1?url=${encodeURIComponent(url)}`,
+	(url: string) => `https://proxy.cors.sh/${url}`,
+	(url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+];
+
+// App details are embedded in the page as AF_initDataCallback script chunks,
+// e.g. AF_initDataCallback({key: 'ds:1', hash: '3', data:["Slack",
+// ["https://slack.com/terms-of-service/user"],["https://slack.com/privacy-policy"],
+// "help@slack-corp.com",2], sideChannel: {}})
+const extractDataChunks = (html: string): unknown[] => {
+	const chunks: unknown[] = [];
+	const re = /AF_initDataCallback\(\{key: 'ds:\d+', hash: '\d+', data:(\[[\s\S]*?\]), sideChannel/g;
+	for (const match of html.matchAll(re)) {
+		try {
+			chunks.push(JSON.parse(match[1]));
+		} catch {
+			// Skip chunks that aren't plain JSON
+		}
+	}
+
+	return chunks;
+};
+
+const findBrandChunk = (chunks: unknown[]) => chunks.find((chunk): chunk is [string, string[], string[], unknown] => Array.isArray(chunk)
+	&& typeof chunk[0] === 'string'
+	&& Array.isArray(chunk[1])
+	&& Array.isArray(chunk[2]));
+
+const findLogoSrc = (value: unknown): string | undefined => {
+	if (typeof value === 'string' && value.startsWith('https://lh3.googleusercontent.com/')) {
+		return value;
+	}
+
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			const result = findLogoSrc(item);
+			if (result !== undefined) {
+				return result;
+			}
+		}
+	}
+
+	return undefined;
 };
 
 const Home = () => {
 	const [appDetails, setAppDetails] = useState<
 		| {type: 'ready'; id: string}
 		| {type: 'loading'}
-		| {type: 'error'; error: Error}
+		| {type: 'error'; error: Error; id: string}
 		| {type: 'loaded'; appDetails: GoogleAppDetails}
 	>({type: 'ready', id: ''});
 
@@ -23,49 +73,70 @@ const Home = () => {
 		try {
 			setAppDetails({type: 'loading'});
 
-			const response = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(`https://accounts.google.com/signin/oauth/error/v2?client_id=${encodeURIComponent(clientId)}&flowName=GeneralOAuthFlow`)}`);
+			const targetUrl = googleErrorPageUrl(clientId);
+			let sawGooglePage = false;
 
-			if (!response.ok) {
-				throw new Error('Failed to fetch app details from Google');
+			// Proxies are fallbacks for each other, so must be tried one at a time
+			/* eslint-disable no-await-in-loop */
+			for (const proxy of corsProxies) {
+				let html: string;
+				try {
+					const response = await fetch(proxy(targetUrl));
+					if (!response.ok) {
+						continue;
+					}
+
+					html = await response.text();
+				} catch {
+					continue;
+				}
+
+				if (!html.includes('AF_initDataCallback')) {
+					// Proxy responded, but not with Google's full error page
+					continue;
+				}
+
+				sawGooglePage = true;
+				const chunks = extractDataChunks(html);
+				const brand = findBrandChunk(chunks);
+				if (!brand) {
+					continue;
+				}
+
+				setAppDetails({
+					type: 'loaded',
+					appDetails: {
+						id: clientId,
+						name: brand[0],
+						termsUrls: brand[1],
+						privacyUrls: brand[2],
+						email: typeof brand[3] === 'string' ? brand[3] : undefined,
+						logoSrc: findLogoSrc(chunks),
+					},
+				});
+				return;
+			}
+			/* eslint-enable no-await-in-loop */
+
+			if (sawGooglePage) {
+				throw new Error('Google did not return any app details for this client ID. Double-check the client ID is correct (it should look like 12345.apps.googleusercontent.com).');
 			}
 
-			const html = await response.text();
-			const parser = new DOMParser();
-			const doc = parser.parseFromString(html, 'text/html');
-
-			const element = doc.querySelector('[data-client-auth-config-brand]');
-			const configStr = element?.getAttribute('data-client-auth-config-brand');
-
-			if (!configStr) {
-				throw new Error('Could not find app details in the response from Google');
-			}
-
-			const parts = configStr.replace('%.@.', '').split(',');
-
-			if (parts.length < 7) {
-				throw new Error(`The data format from Google has changed. Expected 7 parts but got ${parts.length}. `
-					+ 'This tool may need to be updated to handle the new format.');
-			}
-
-			setAppDetails({
-				type: 'loaded',
-				appDetails: {
-					id: parts[0],
-					name: JSON.parse(parts[1]),
-					logoSrc: JSON.parse(parts[2]),
-					email: JSON.parse(parts[3]),
-					website: JSON.parse(parts[4]),
-					termsUrls: JSON.parse(parts[5]),
-					privacyUrls: JSON.parse(parts[6]),
-				},
-			});
+			throw new Error('Failed to fetch app details from Google via the available CORS proxies. You can still look up the details manually with the command below.');
 		} catch (error) {
 			setAppDetails({
 				type: 'error',
 				error: error instanceof Error ? error : new Error('An unknown error occurred'),
+				id: clientId,
 			});
 		}
 	};
+
+	const curlCommand = (clientId: string) => `curl -s -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" \\
+  "${googleErrorPageUrl(clientId || 'YOUR_CLIENT_ID')}" \\
+  | grep -o "AF_initDataCallback({key: 'ds:1', hash: '[0-9]*', data:\\[[^;]*\\], sideChannel" \\
+  | sed "s/.*data://; s/, sideChannel//" \\
+  | jq '{name: .[0], termsOfService: .[1], privacyPolicy: .[2], email: .[3]}'`;
 
 	return (
 		<div className='max-w-2xl mx-auto p-16'>
@@ -77,19 +148,6 @@ const Home = () => {
 				This tool can find the app details behind a given Google Client ID (such as
 				12345.apps.googleusercontent.com).
 			</p>
-
-			<div className='mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg'>
-				<div className='font-semibold text-yellow-900 mb-2'>⚠️ This tool currently does not work</div>
-				<p className='text-yellow-800 text-sm mb-2'>
-					Google now requires a browser User-Agent header to return app details. CORS proxies strip this header, preventing the tool from working.
-				</p>
-				<p className='text-yellow-800 text-sm'>
-					<strong>Workaround:</strong> Use curl with the proper headers:{' '}
-					<code className='bg-yellow-100 px-1 py-0.5 rounded text-xs'>
-						curl -H &quot;User-Agent: Mozilla/5.0&quot; &quot;https://accounts.google.com/signin/oauth/error?client_id=YOUR_CLIENT_ID&amp;flowName=GeneralOAuthFlow&quot;
-					</code>
-				</p>
-			</div>
 
 			{appDetails.type === 'ready' && (
 				<div className='mb-6'>
@@ -130,8 +188,15 @@ const Home = () => {
 				<div className='mb-6 p-6 shadow bg-red-50 border border-red-200 rounded-lg'>
 					<div className='text-red-700 font-medium mb-1'>Error occurred</div>
 					<div className='text-red-600'>{appDetails.error.message}</div>
+					<div className='mt-4'>
+						<div className='text-red-700 font-medium mb-1'>Manual lookup</div>
+						<p className='text-red-600 text-sm mb-2'>
+							You can get the same details yourself with curl and <a href='https://jqlang.org/' target='_blank' rel='noopener noreferrer' className='underline'>jq</a>:
+						</p>
+						<pre className='bg-red-100 text-red-900 text-xs p-3 rounded overflow-x-auto whitespace-pre-wrap break-all'><code>{curlCommand(appDetails.id)}</code></pre>
+					</div>
 					<p className='mt-4'><button type='button' onClick={() => {
-						setAppDetails({type: 'ready', id: ''});
+						setAppDetails({type: 'ready', id: appDetails.id});
 					}} className='underline'>Try again</button>.</p>
 				</div>
 			)}
@@ -149,16 +214,9 @@ const Home = () => {
 							)}
 							<div>
 								<h2 className='text-xl font-semibold'>{appDetails.appDetails.name}</h2>
-								<p className='text-gray-500 hover:underline'><a href={`mailto:${appDetails.appDetails.email}`}>{appDetails.appDetails.email}</a></p>
-								<p className='text-blue-500 hover:underline'>
-									<a
-										href={appDetails.appDetails.website}
-										target='_blank'
-										rel='noopener noreferrer'
-									>
-										{appDetails.appDetails.website}
-									</a>
-								</p>
+								{appDetails.appDetails.email && (
+									<p className='text-gray-500 hover:underline'><a href={`mailto:${appDetails.appDetails.email}`}>{appDetails.appDetails.email}</a></p>
+								)}
 							</div>
 						</div>
 
