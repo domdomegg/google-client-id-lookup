@@ -132,8 +132,39 @@ const Home = () => {
 		}
 	};
 
-	const curlCommand = (clientId: string) => `curl -s -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" \\
-  "${googleErrorPageUrl(clientId || 'YOUR_CLIENT_ID')}" \\
+	const [pastedHtml, setPastedHtml] = useState('');
+
+	const onParsePastedHtml = (clientId: string) => {
+		const chunks = extractDataChunks(pastedHtml);
+		const brand = findBrandChunk(chunks);
+		if (!brand) {
+			setAppDetails({
+				type: 'error',
+				error: new Error('Could not find app details in the pasted output. Check the command ran successfully and you pasted its full output — and double-check the client ID is correct.'),
+				id: clientId,
+			});
+			return;
+		}
+
+		setPastedHtml('');
+		setAppDetails({
+			type: 'loaded',
+			appDetails: {
+				id: clientId,
+				name: brand[0],
+				termsUrls: brand[1],
+				privacyUrls: brand[2],
+				email: typeof brand[3] === 'string' ? brand[3] : undefined,
+				logoSrc: findLogoSrc(chunks),
+			},
+		});
+	};
+
+	const browserUserAgent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+	const curlCommand = (clientId: string) => `curl -s -A "${browserUserAgent}" "${googleErrorPageUrl(clientId || 'YOUR_CLIENT_ID')}"`;
+
+	const curlJqCommand = (clientId: string) => `${curlCommand(clientId)} \\
   | grep -o "AF_initDataCallback({key: 'ds:1', hash: '[0-9]*', data:\\[[^;]*\\], sideChannel" \\
   | sed "s/.*data://; s/, sideChannel//" \\
   | jq '{name: .[0], termsOfService: .[1], privacyPolicy: .[2], email: .[3]}'`;
@@ -148,6 +179,12 @@ const Home = () => {
 				This tool can find the app details behind a given Google Client ID (such as
 				12345.apps.googleusercontent.com).
 			</p>
+
+			<div className='mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm'>
+				⚠️ In-browser lookup is currently unreliable: Google blocks requests made via public CORS
+				proxies, which this page depends on. If the lookup fails, the error screen includes a
+				manual lookup that takes about 30 seconds.
+			</div>
 
 			{appDetails.type === 'ready' && (
 				<div className='mb-6'>
@@ -191,9 +228,33 @@ const Home = () => {
 					<div className='mt-4'>
 						<div className='text-red-700 font-medium mb-1'>Manual lookup</div>
 						<p className='text-red-600 text-sm mb-2'>
-							You can get the same details yourself with curl and <a href='https://jqlang.org/' target='_blank' rel='noopener noreferrer' className='underline'>jq</a>:
+							Run this in a terminal (Google will only answer requests that look like they come from a browser):
 						</p>
 						<pre className='bg-red-100 text-red-900 text-xs p-3 rounded overflow-x-auto whitespace-pre-wrap break-all'><code>{curlCommand(appDetails.id)}</code></pre>
+						<p className='text-red-600 text-sm my-2'>
+							Then paste the output here and the app details will be extracted from it:
+						</p>
+						<textarea
+							value={pastedHtml}
+							onChange={(e) => {
+								setPastedHtml(e.target.value);
+							}}
+							placeholder='Paste the command output here...'
+							className='w-full h-24 px-3 py-2 text-xs border border-red-300 rounded-md outline-none focus:ring-2 ring-red-200 transition-all font-mono'
+						/>
+						<button
+							type='button'
+							className='mt-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-500 focus:outline-none focus:ring-2 ring-red-300 transition-all'
+							onClick={() => {
+								onParsePastedHtml(appDetails.id);
+							}}
+						>
+							Extract app details
+						</button>
+						<p className='text-red-600 text-sm mt-4 mb-2'>
+							Alternatively, with <a href='https://jqlang.org/' target='_blank' rel='noopener noreferrer' className='underline'>jq</a> installed you can get the details as JSON directly:
+						</p>
+						<pre className='bg-red-100 text-red-900 text-xs p-3 rounded overflow-x-auto whitespace-pre-wrap break-all'><code>{curlJqCommand(appDetails.id)}</code></pre>
 					</div>
 					<p className='mt-4'><button type='button' onClick={() => {
 						setAppDetails({type: 'ready', id: appDetails.id});

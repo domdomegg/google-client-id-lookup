@@ -8,19 +8,11 @@ Web app that can find the app behind a given Google Client ID (such as 12345.app
 
 ## How it works
 
-The Google OAuth error pages previously provided hidden data about the app when provided a client ID for debugging purposes. This app attempts to fetch those pages, scrape the data and display the app information in a nice way.
+Google's OAuth error page (`https://accounts.google.com/signin/oauth/error?client_id=...&flowName=GeneralOAuthFlow`) embeds details about the app — name, logo, support email, terms of service and privacy policy URLs — in `AF_initDataCallback` script chunks. This app fetches that page, scrapes the data and displays it in a nice way.
 
-**⚠️ Current Status:** As of 2025, Google requires a proper browser `User-Agent` header to return OAuth pages with embedded app data. Without this header, Google returns a JavaScript-rendered page where the `data-client-auth-config-brand` attribute contains template code (e.g., `'+_.G(_.qg(e))+'`) instead of actual data.
+**⚠️ Current status:** in-browser lookup is unreliable. Google only serves the page with app details to requests with a browser-like `User-Agent`, and rejects (403) requests carrying `Sec-Fetch-Site: cross-site` — a header browsers force-attach to cross-site fetches and JavaScript cannot remove. Public pass-through CORS proxies forward that header, so they all fail. The site falls back to showing a curl command whose output can be pasted back in (or piped through jq) to get the same details.
 
-**This tool no longer works** because:
-- It runs entirely in the browser (client-side)
-- Browsers cannot send custom headers to Google due to CORS restrictions
-- CORS proxies (like corsproxy.io) strip the `User-Agent` header
-
-**To fix this tool**, it would need to be converted to use a backend server that can:
-- Send requests to Google with a proper browser `User-Agent` header
-- Bypass CORS restrictions
-- Alternatively, use a headless browser solution (Puppeteer/Playwright)
+**To fix properly**, deploy the bundled proxy worker (see [worker/README.md](worker/README.md)), which makes its own clean request to Google, and add its URL to `corsProxies` in `src/pages/index.tsx`.
 
 This tool is subject to breaking changes whenever Google updates their OAuth sign-in pages.
 
