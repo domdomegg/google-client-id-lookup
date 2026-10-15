@@ -151,12 +151,12 @@ const Home = () => {
 
 			{appDetails.type === 'ready' && (
 				<div className='mb-6'>
-					<div className='shadow-sm border rounded-lg p-6'>
+					<div className='shadow-xs border rounded-lg p-6'>
 						<div className='flex gap-2'>
 							<input
 								type='text'
 								placeholder='Enter Client ID'
-								className='flex-1 px-3 border border-gray-300 rounded-md outline-none focus:ring-2 ring-gray-200 transition-all'
+								className='flex-1 px-3 border border-gray-300 rounded-md outline-hidden focus:ring-2 ring-gray-200 transition-all'
 								value={appDetails.id}
 								onChange={(e) => {
 									setAppDetails({type: 'ready', id: e.target.value});
@@ -164,7 +164,7 @@ const Home = () => {
 							/>
 							<button
 								type='button'
-								className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500 focus:outline-none focus:ring-2 ring-blue-300 transition-all'
+								className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500 focus:outline-hidden focus:ring-2 ring-blue-300 transition-all'
 								onClick={async () => onLookup(appDetails.id)}
 							>
 								Lookup
@@ -178,14 +178,14 @@ const Home = () => {
 			)}
 
 			{appDetails.type === 'loading' && (
-				<div className='mb-6 flex items-center gap-4 shadow-sm border rounded-lg p-6'>
+				<div className='mb-6 flex items-center gap-4 shadow-xs border rounded-lg p-6'>
 					<div className='animate-spin rounded-full h-8 w-8 border-4 border-t-blue-500 border-r-blue-500 border-transparent' />
 					<span className='text-gray-600'>Finding app details...</span>
 				</div>
 			)}
 
 			{appDetails.type === 'error' && (
-				<div className='mb-6 p-6 shadow bg-red-50 border border-red-200 rounded-lg'>
+				<div className='mb-6 p-6 shadow-sm bg-red-50 border border-red-200 rounded-lg'>
 					<div className='text-red-700 font-medium mb-1'>Error occurred</div>
 					<div className='text-red-600'>{appDetails.error.message}</div>
 					<div className='mt-4'>
@@ -193,7 +193,7 @@ const Home = () => {
 						<p className='text-red-600 text-sm mb-2'>
 							You can get the same details yourself with curl and <a href='https://jqlang.org/' target='_blank' rel='noopener noreferrer' className='underline'>jq</a>:
 						</p>
-						<pre className='bg-red-100 text-red-900 text-xs p-3 rounded overflow-x-auto whitespace-pre-wrap break-all'><code>{curlCommand(appDetails.id)}</code></pre>
+						<pre className='bg-red-100 text-red-900 text-xs p-3 rounded-sm overflow-x-auto whitespace-pre-wrap break-all'><code>{curlCommand(appDetails.id)}</code></pre>
 					</div>
 					<p className='mt-4'><button type='button' onClick={() => {
 						setAppDetails({type: 'ready', id: appDetails.id});
@@ -203,13 +203,13 @@ const Home = () => {
 
 			{appDetails.type === 'loaded' && (
 				<div className='mb-6'>
-					<div className='shadow-sm border rounded-lg p-6'>
+					<div className='shadow-xs border rounded-lg p-6'>
 						<div className='flex items-center gap-4 mb-6'>
 							{appDetails.appDetails.logoSrc && (
 								<img
 									src={appDetails.appDetails.logoSrc}
 									alt='App Logo'
-									className='w-20 h-20 shadow-sm border rounded-lg'
+									className='w-20 h-20 shadow-xs border rounded-lg'
 								/>
 							)}
 							<div>
